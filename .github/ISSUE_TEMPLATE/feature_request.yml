@@ -1,0 +1,32 @@
+name: 💡 Feature request
+description: Suggest an improvement or new capability.
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Please search [existing issues](https://github.com/alginte/community/issues?q=is%3Aissue)
+        and [discussions](https://github.com/alginte/community/discussions) first —
+        for open-ended ideas, a [Discussion](https://github.com/alginte/community/discussions)
+        is often the better place to start.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the underlying need, not only the solution you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like Alginte to do?
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / workarounds
+      description: Anything you've tried or considered.
+    validations:
+      required: false

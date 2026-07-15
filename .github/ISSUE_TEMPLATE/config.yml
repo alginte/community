@@ -1,0 +1,12 @@
+# Force use of the structured templates above; no blank issues.
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Questions & discussion (forum)
+    url: https://github.com/alginte/community/discussions
+    about: "How-do-I questions, ideas, show & tell — start a Discussion instead of an issue."
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/alginte/community/security
+    about: "Please report security issues privately — do NOT open a public issue."
+  - name: 🌐 Website & downloads
+    url: https://www.alginte.com
+    about: "Download Alginte and read the docs."

@@ -1,0 +1,60 @@
+name: 🐛 Bug report
+description: Something in Alginte isn't working as expected.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please search [existing issues](https://github.com/alginte/community/issues?q=is%3Aissue)
+        first. **Security issue?** Don't file it here — see [SECURITY.md](https://github.com/alginte/community/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, ordered steps so we can see it too.
+      placeholder: |
+        1. Go to '...'
+        2. Click '...'
+        3. See error
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Alginte version
+      description: From the in-app **About** page (e.g. 0.2.0).
+    validations:
+      required: true
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: How are you running Alginte?
+      options:
+        - Docker image
+        - Fat JAR (java -jar)
+        - Other / not sure
+    validations:
+      required: true
+  - type: input
+    id: kafka
+    attributes:
+      label: Kafka / environment
+      description: Broker distribution + version, and OS/browser if UI-related.
+      placeholder: e.g. Apache Kafka 4.2, Confluent Cloud, Redpanda; Chrome / Windows
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / screenshots
+      description: Backend log lines or console errors help a lot. Redact secrets.
+      render: shell
+    validations:
+      required: false
