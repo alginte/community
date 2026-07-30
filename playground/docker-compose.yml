@@ -71,7 +71,9 @@ services:
       seed:
         condition: service_completed_successfully
     ports:
-      - '127.0.0.1:8888:8888'
+      # Port taken (Jupyter also loves 8888)? Override without editing:
+      #   ALGINTE_PORT=8890 docker compose up -d
+      - '127.0.0.1:${ALGINTE_PORT:-8888}:8888'
     environment:
       SPRING_KAFKA_BOOTSTRAPSERVERS: broker:29092
       ALGINTE_SCHEMAREGISTRY_URL: http://schema-registry:8081/
