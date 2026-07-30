@@ -1,0 +1,134 @@
+# Alginte playground -- try the whole product on your machine with one command:
+#
+#     docker compose up -d        ->  http://localhost:8888
+#     docker compose down         ->  everything gone, nothing left behind
+#
+# What you get: Alginte + a single-node Kafka (KRaft) + Schema Registry, with
+# sample topics, records, and a consumer group showing real lag -- so every
+# screen has something to look at. The `text-lines` topic is seeded as input
+# for building your first Streams topology (the word-count walkthrough in the
+# docs: https://docs.alginte.com/streams/building).
+#
+# Design choices, deliberate:
+#   - No auth: the UI is published on 127.0.0.1 only -- your machine, your rules.
+#   - No volumes: `down` resets the playground completely; `up` reseeds fresh.
+#   - `alginte/alginte:latest`: the playground always shows the current release.
+#   - No Kafka Connect / ksqlDB: their URL props stay empty, so the UI hides
+#     those areas honestly instead of showing broken ones.
+#
+# This file is standalone -- save it anywhere and `docker compose up -d`.
+
+services:
+
+  broker:
+    image: confluentinc/cp-kafka:8.2.0
+    hostname: broker
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://broker:29092'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://broker:29092,CONTROLLER://broker:29093'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      KAFKA_CLUSTER_ID: 1
+      CLUSTER_ID: cGxheWdyb3VuZGNsdXN0ZXIx
+    healthcheck:
+      test: [ 'CMD-SHELL', 'kafka-topics --bootstrap-server broker:29092 --list' ]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:8.2.0
+    hostname: schema-registry
+    restart: unless-stopped
+    depends_on:
+      broker:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'broker:29092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+
+  alginte:
+    image: alginte/alginte:latest
+    restart: on-failure
+    depends_on:
+      # The app fails fast (by design) when the broker is unreachable, so wait
+      # for the broker to be healthy and let the seed finish first -- the UI's
+      # first paint then already shows the sample data.
+      broker:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    ports:
+      - '127.0.0.1:8888:8888'
+    environment:
+      SPRING_KAFKA_BOOTSTRAPSERVERS: broker:29092
+      ALGINTE_SCHEMAREGISTRY_URL: http://schema-registry:8081/
+
+  seed:
+    # One-shot: sample topics, keyed JSON records, and a consumer group left
+    # Empty with real lag (committed < log-end) so the Offsets screen -- and the
+    # Alter Offset action, enabled only for empty groups -- has something to show.
+    image: confluentinc/cp-kafka:8.2.0
+    depends_on:
+      broker:
+        condition: service_healthy
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      echo 'Creating playground topics'
+      for t in orders payments customers text-lines word-counts demo-input demo-output; do
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic $$t --replication-factor 1 --partitions 3
+      done
+
+      echo 'Seeding sample records'
+      kafka-console-producer --bootstrap-server broker:29092 --topic orders --property parse.key=true --property key.separator='|' <<'EOF'
+      o-1001|{\"orderId\":\"o-1001\",\"customerId\":\"c-01\",\"item\":\"espresso-machine\",\"quantity\":1,\"priceEur\":249.90}
+      o-1002|{\"orderId\":\"o-1002\",\"customerId\":\"c-02\",\"item\":\"grinder\",\"quantity\":2,\"priceEur\":89.00}
+      o-1003|{\"orderId\":\"o-1003\",\"customerId\":\"c-01\",\"item\":\"filter-pack\",\"quantity\":5,\"priceEur\":4.50}
+      o-1004|{\"orderId\":\"o-1004\",\"customerId\":\"c-03\",\"item\":\"kettle\",\"quantity\":1,\"priceEur\":59.99}
+      EOF
+      kafka-console-producer --bootstrap-server broker:29092 --topic payments --property parse.key=true --property key.separator='|' <<'EOF'
+      o-1001|{\"orderId\":\"o-1001\",\"method\":\"card\",\"amountEur\":249.90,\"status\":\"CAPTURED\"}
+      o-1002|{\"orderId\":\"o-1002\",\"method\":\"paypal\",\"amountEur\":178.00,\"status\":\"CAPTURED\"}
+      o-1004|{\"orderId\":\"o-1004\",\"method\":\"card\",\"amountEur\":59.99,\"status\":\"PENDING\"}
+      EOF
+      kafka-console-producer --bootstrap-server broker:29092 --topic customers --property parse.key=true --property key.separator='|' <<'EOF'
+      c-01|{\"customerId\":\"c-01\",\"name\":\"Ana K.\",\"country\":\"HR\",\"tier\":\"gold\"}
+      c-02|{\"customerId\":\"c-02\",\"name\":\"Marco B.\",\"country\":\"IT\",\"tier\":\"silver\"}
+      c-03|{\"customerId\":\"c-03\",\"name\":\"Lena W.\",\"country\":\"DE\",\"tier\":\"gold\"}
+      EOF
+
+      # Input for the word-count topology you can build in the Streams builder.
+      kafka-console-producer --bootstrap-server broker:29092 --topic text-lines --property parse.key=true --property key.separator='|' <<'EOF'
+      l-1|the quick brown fox jumps over the lazy dog
+      l-2|the dog barks and the fox runs
+      l-3|streams count words the easy way
+      EOF
+
+      # A consumer group left Empty with VISIBLE lag: read + commit everything
+      # seeded so far, exit, then produce three more orders -- committed stays
+      # behind log-end deterministically, whatever the key hashing does.
+      echo 'Creating the lagging consumer group'
+      kafka-console-consumer --bootstrap-server broker:29092 --topic orders --group orders-auditor --from-beginning --max-messages 4 --timeout-ms 20000 || true
+
+      echo 'Producing the post-commit batch (creates the lag)'
+      kafka-console-producer --bootstrap-server broker:29092 --topic orders --property parse.key=true --property key.separator='|' <<'EOF'
+      o-1005|{\"orderId\":\"o-1005\",\"customerId\":\"c-02\",\"item\":\"tamper\",\"quantity\":1,\"priceEur\":24.00}
+      o-1006|{\"orderId\":\"o-1006\",\"customerId\":\"c-03\",\"item\":\"scale\",\"quantity\":1,\"priceEur\":39.50}
+      o-1007|{\"orderId\":\"o-1007\",\"customerId\":\"c-01\",\"item\":\"beans-1kg\",\"quantity\":3,\"priceEur\":22.00}
+      EOF
+
+      echo 'Playground seeded.'
+      "

@@ -13,7 +13,8 @@ place to:
 ## Links
 
 - Website & downloads: https://www.alginte.com
-- Documentation: _(coming soon)_
+- Documentation: https://docs.alginte.com
+- **Try it in one command** (no Kafka needed): [playground](./playground/)
 - Discussions (forum): https://github.com/alginte/community/discussions
 
 ## What to file where
