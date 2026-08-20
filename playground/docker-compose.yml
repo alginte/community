@@ -5,9 +5,13 @@
 #
 # What you get: Alginte + a single-node Kafka (KRaft) + Schema Registry, with
 # sample topics, records, and a consumer group showing real lag -- so every
-# screen has something to look at. The `text-lines` topic is seeded as input
-# for building your first Streams topology (the word-count walkthrough in the
-# docs: https://docs.alginte.com/streams/building).
+# screen has something to look at. The `orders` topic holds real Avro records
+# framed against the registered `orders-value` subject, and the blog post's
+# topology (orders -> order total -> big orders -> orders-enriched) is deployed
+# through Alginte's own API on startup -- the post's clips can be taken apart
+# here, node by node. The `text-lines` topic is seeded as input for building
+# your first Streams topology by hand (the word-count walkthrough in the docs:
+# https://docs.alginte.com/streams/building).
 #
 # Design choices, deliberate:
 #   - No auth: the UI is published on 127.0.0.1 only -- your machine, your rules.
@@ -64,11 +68,13 @@ services:
     restart: on-failure
     depends_on:
       # The app fails fast (by design) when the broker is unreachable, so wait
-      # for the broker to be healthy and let the seed finish first -- the UI's
+      # for the broker to be healthy and let the seeds finish first -- the UI's
       # first paint then already shows the sample data.
       broker:
         condition: service_healthy
       seed:
+        condition: service_completed_successfully
+      avro-seed:
         condition: service_completed_successfully
     ports:
       # Port taken (Jupyter also loves 8888)? Override without editing:
@@ -79,9 +85,10 @@ services:
       ALGINTE_SCHEMAREGISTRY_URL: http://schema-registry:8081/
 
   seed:
-    # One-shot: sample topics, keyed JSON records, and a consumer group left
-    # Empty with real lag (committed < log-end) so the Offsets screen -- and the
-    # Alter Offset action, enabled only for empty groups -- has something to show.
+    # One-shot: sample topics and keyed JSON records for the non-orders
+    # screens. The `orders` topic itself is seeded by avro-seed below --
+    # real Avro records against the registered subject, matching the blog
+    # post's clips.
     image: confluentinc/cp-kafka:8.2.0
     depends_on:
       broker:
@@ -90,17 +97,15 @@ services:
     command: |
       "
       echo 'Creating playground topics'
-      for t in orders payments customers text-lines word-counts demo-input demo-output; do
+      # `orders` is a single partition ON PURPOSE: the newest record is then
+      # deterministic, and the topology preview's real-record sample is the
+      # same ord-1010 the blog post narrates.
+      kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic orders --replication-factor 1 --partitions 1
+      for t in orders-enriched payments customers text-lines word-counts demo-input demo-output; do
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic $$t --replication-factor 1 --partitions 3
       done
 
       echo 'Seeding sample records'
-      kafka-console-producer --bootstrap-server broker:29092 --topic orders --property parse.key=true --property key.separator='|' <<'EOF'
-      o-1001|{\"orderId\":\"o-1001\",\"customerId\":\"c-01\",\"item\":\"espresso-machine\",\"quantity\":1,\"priceEur\":249.90}
-      o-1002|{\"orderId\":\"o-1002\",\"customerId\":\"c-02\",\"item\":\"grinder\",\"quantity\":2,\"priceEur\":89.00}
-      o-1003|{\"orderId\":\"o-1003\",\"customerId\":\"c-01\",\"item\":\"filter-pack\",\"quantity\":5,\"priceEur\":4.50}
-      o-1004|{\"orderId\":\"o-1004\",\"customerId\":\"c-03\",\"item\":\"kettle\",\"quantity\":1,\"priceEur\":59.99}
-      EOF
       kafka-console-producer --bootstrap-server broker:29092 --topic payments --property parse.key=true --property key.separator='|' <<'EOF'
       o-1001|{\"orderId\":\"o-1001\",\"method\":\"card\",\"amountEur\":249.90,\"status\":\"CAPTURED\"}
       o-1002|{\"orderId\":\"o-1002\",\"method\":\"paypal\",\"amountEur\":178.00,\"status\":\"CAPTURED\"}
@@ -119,18 +124,108 @@ services:
       l-3|streams count words the easy way
       EOF
 
-      # A consumer group left Empty with VISIBLE lag: read + commit everything
-      # seeded so far, exit, then produce three more orders -- committed stays
-      # behind log-end deterministically, whatever the key hashing does.
-      echo 'Creating the lagging consumer group'
-      kafka-console-consumer --bootstrap-server broker:29092 --topic orders --group orders-auditor --from-beginning --max-messages 4 --timeout-ms 20000 || true
+      echo 'Playground topics seeded.'
+      "
 
-      echo 'Producing the post-commit batch (creates the lag)'
-      kafka-console-producer --bootstrap-server broker:29092 --topic orders --property parse.key=true --property key.separator='|' <<'EOF'
-      o-1005|{\"orderId\":\"o-1005\",\"customerId\":\"c-02\",\"item\":\"tamper\",\"quantity\":1,\"priceEur\":24.00}
-      o-1006|{\"orderId\":\"o-1006\",\"customerId\":\"c-03\",\"item\":\"scale\",\"quantity\":1,\"priceEur\":39.50}
-      o-1007|{\"orderId\":\"o-1007\",\"customerId\":\"c-01\",\"item\":\"beans-1kg\",\"quantity\":3,\"priceEur\":22.00}
+  avro-seed:
+    # One-shot, on the Schema Registry image because kafka-avro-console-producer
+    # lives there. Registers `orders-value` and seeds the SAME ten Avro orders
+    # the blog post's clips show -- null keys (the topology reads the key as
+    # Void), registry-framed against the registered schema id so the bytes
+    # match an app-produced record. The lagging `orders-auditor` group commits
+    # after seven, then the last three arrive -- committed < log-end
+    # deterministically, so the Offsets screen (and Alter Offset, enabled only
+    # for Empty groups) has something real to show. ord-1010 lands LAST: it is
+    # the newest record, the one the preview samples (Kettle, 3 x 17.0 = 51).
+    image: confluentinc/cp-schema-registry:8.2.0
+    depends_on:
+      broker:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      echo 'Waiting for Schema Registry'
+      until curl -sf http://schema-registry:8081/subjects >/dev/null; do sleep 3; done
+
+      echo 'Registering orders-value (Avro)'
+      cat > /tmp/orders-schema.json <<'EOF'
+      {\"schemaType\":\"AVRO\",\"schema\":\"{\\\"type\\\":\\\"record\\\",\\\"name\\\":\\\"Order\\\",\\\"namespace\\\":\\\"com.alginte.demo\\\",\\\"fields\\\":[{\\\"name\\\":\\\"orderId\\\",\\\"type\\\":\\\"string\\\"},{\\\"name\\\":\\\"customerId\\\",\\\"type\\\":\\\"string\\\"},{\\\"name\\\":\\\"item\\\",\\\"type\\\":\\\"string\\\"},{\\\"name\\\":\\\"quantity\\\",\\\"type\\\":\\\"int\\\"},{\\\"name\\\":\\\"priceEur\\\",\\\"type\\\":\\\"double\\\"}]}\"}
+      EOF
+      curl -sf -X POST http://schema-registry:8081/subjects/orders-value/versions -H 'Content-Type: application/vnd.schemaregistry.v1+json' --data-binary @/tmp/orders-schema.json && echo ' <- orders-value registered'
+      SCHEMA_ID=$$(curl -sf http://schema-registry:8081/subjects/orders-value/versions/latest | sed -E 's/.*\"id\":([0-9]+).*/\\1/')
+      echo \"orders-value schema id: $$SCHEMA_ID\"
+
+      echo 'Seeding Avro orders (first seven)'
+      kafka-avro-console-producer --bootstrap-server broker:29092 --topic orders --property schema.registry.url=http://schema-registry:8081 --property value.schema.id=$$SCHEMA_ID <<'EOF'
+      {\"orderId\":\"ord-1001\",\"customerId\":\"c-1001\",\"item\":\"Grinder\",\"quantity\":1,\"priceEur\":89.0}
+      {\"orderId\":\"ord-1002\",\"customerId\":\"c-2417\",\"item\":\"Filter Pack\",\"quantity\":5,\"priceEur\":4.5}
+      {\"orderId\":\"ord-1003\",\"customerId\":\"c-6650\",\"item\":\"Espresso Machine\",\"quantity\":1,\"priceEur\":249.9}
+      {\"orderId\":\"ord-1004\",\"customerId\":\"c-3305\",\"item\":\"Kettle\",\"quantity\":2,\"priceEur\":59.99}
+      {\"orderId\":\"ord-1005\",\"customerId\":\"c-2417\",\"item\":\"Scale\",\"quantity\":1,\"priceEur\":34.0}
+      {\"orderId\":\"ord-1006\",\"customerId\":\"c-8802\",\"item\":\"Tamper\",\"quantity\":3,\"priceEur\":12.5}
+      {\"orderId\":\"ord-1007\",\"customerId\":\"c-1001\",\"item\":\"Milk Jug\",\"quantity\":2,\"priceEur\":18.0}
       EOF
 
-      echo 'Playground seeded.'
+      echo 'Creating the lagging consumer group'
+      # The AVRO console consumer, not the plain one -- this image ships only
+      # the avro variants, and the plain tool silently not existing is exactly
+      # the failure the || true would swallow (caught on the first live run).
+      kafka-avro-console-consumer --bootstrap-server broker:29092 --topic orders --group orders-auditor --from-beginning --max-messages 7 --timeout-ms 20000 --property schema.registry.url=http://schema-registry:8081 >/dev/null || true
+
+      echo 'Producing the post-commit batch (creates the lag; ord-1010 is newest)'
+      kafka-avro-console-producer --bootstrap-server broker:29092 --topic orders --property schema.registry.url=http://schema-registry:8081 --property value.schema.id=$$SCHEMA_ID <<'EOF'
+      {\"orderId\":\"ord-1008\",\"customerId\":\"c-5521\",\"item\":\"Server\",\"quantity\":1,\"priceEur\":320.0}
+      {\"orderId\":\"ord-1009\",\"customerId\":\"c-8802\",\"item\":\"Cleaning Kit\",\"quantity\":4,\"priceEur\":9.75}
+      {\"orderId\":\"ord-1010\",\"customerId\":\"c-6650\",\"item\":\"Kettle\",\"quantity\":3,\"priceEur\":17.0}
+      EOF
+      echo 'Avro orders seeded.'
+      "
+
+  stream-seed:
+    # One-shot: deploys the blog post's topology (orders -> order total ->
+    # big orders -> orders-enriched) through Alginte's own API, expressions
+    # and all -- so the Streams area shows the deployed canvas from the clips,
+    # per-node badges included, and the sink topic fills with real output.
+    # No CSRF dance here, unlike the demo rig's seed: the playground runs with
+    # auth off, so a plain POST is accepted.
+    image: curlimages/curl:8.10.1
+    depends_on:
+      alginte:
+        condition: service_started
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      echo 'Waiting for Alginte'
+      until curl -sf http://alginte:8888/actuator/health >/dev/null; do sleep 3; done
+
+      cat > /tmp/stream.json <<'EOF'
+      {
+        \"configuration\": { \"application.id\": \"orderEnrichment\" },
+        \"nodes\": [
+          { \"id\": \"src\", \"type\": \"SOURCE_STREAM\", \"position\": { \"x\": 340, \"y\": 0 },
+            \"data\": { \"name\": \"Orders\", \"streamSourceTarget\": \"STREAM\", \"inputTopics\": [\"orders\"],
+                      \"keySerde\": \"Void\", \"valueSerde\": \"Avro\", \"valueSubject\": \"orders-value\" } },
+          { \"id\": \"enrich\", \"type\": \"MAP_VALUES\", \"position\": { \"x\": 340, \"y\": 160 },
+            \"data\": { \"name\": \"order total\",
+                      \"expression\": { \"expression\": \"{'customer': value.get('customerId'), 'product': value.get('item'), 'total': value.get('quantity') * value.get('priceEur')}\", \"language\": \"SpEL\" } } },
+          { \"id\": \"bigOnly\", \"type\": \"FILTER\", \"position\": { \"x\": 340, \"y\": 320 },
+            \"data\": { \"name\": \"big orders\",
+                      \"expression\": { \"expression\": \"value.get('total') > 50\", \"language\": \"SpEL\" } } },
+          { \"id\": \"sink\", \"type\": \"SINK_NODE\", \"position\": { \"x\": 340, \"y\": 480 },
+            \"data\": { \"name\": \"Big Orders\", \"topicName\": \"orders-enriched\", \"keySerde\": \"Void\", \"valueSerde\": \"JSON\" } }
+        ],
+        \"edges\": [
+          { \"id\": \"e1\", \"animated\": false, \"source\": \"src\", \"target\": \"enrich\", \"type\": \"deletable-edge\",
+            \"markerEnd\": { \"type\": \"arrow\", \"width\": 30, \"height\": 30, \"color\": \"#b1b1b7\" }, \"data\": { \"label\": null } },
+          { \"id\": \"e2\", \"animated\": false, \"source\": \"enrich\", \"target\": \"bigOnly\", \"type\": \"deletable-edge\",
+            \"markerEnd\": { \"type\": \"arrow\", \"width\": 30, \"height\": 30, \"color\": \"#b1b1b7\" }, \"data\": { \"label\": null } },
+          { \"id\": \"e3\", \"animated\": false, \"source\": \"bigOnly\", \"target\": \"sink\", \"type\": \"deletable-edge\",
+            \"markerEnd\": { \"type\": \"arrow\", \"width\": 30, \"height\": 30, \"color\": \"#b1b1b7\" }, \"data\": { \"label\": null } }
+        ]
+      }
+      EOF
+      echo 'Deploying the blog topology'
+      curl -sf -X POST http://alginte:8888/api/kafka-streams/create-stream-from-react-flow -H 'Content-Type: application/json' --data-binary @/tmp/stream.json >/dev/null && echo ' <- orderEnrichment deployed'
       "
