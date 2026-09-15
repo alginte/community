@@ -13,6 +13,7 @@ place to:
 ## Links
 
 - Website & downloads: https://www.alginte.com
+- **Standalone JAR** (Java 25, no container): [Releases](https://github.com/alginte/community/releases) — `alginte.jar` with its SHA-256; the release notes live on the website
 - Documentation: https://docs.alginte.com
 - **Try it in one command** (no Kafka needed): [playground](./playground/)
 - Discussions (forum): https://github.com/alginte/community/discussions
