@@ -19,6 +19,9 @@
 #   - `alginte/alginte:latest`: the playground always shows the current release.
 #   - No Kafka Connect / ksqlDB: their URL props stay empty, so the UI hides
 #     those areas honestly instead of showing broken ones.
+#   - Sandbox mode on (ALGINTE_SANDBOX_ENABLED): the MCP endpoint at /mcp also
+#     offers the tools that deploy and reset stream designs here, because here
+#     nothing shared can be harmed.
 #
 # This file is standalone -- save it anywhere and `docker compose up -d`.
 
@@ -83,6 +86,11 @@ services:
     environment:
       SPRING_KAFKA_BOOTSTRAPSERVERS: broker:29092
       ALGINTE_SCHEMAREGISTRY_URL: http://schema-registry:8081/
+      # Sandbox mode: this stack is nobody's shared cluster, so the MCP surface
+      # also carries the tools that validate, deploy, stop and delete stream
+      # designs and evaluate expressions -- an agent's workbench, blast radius
+      # `docker compose down`. Never set this on an instance against a real cluster.
+      ALGINTE_SANDBOX_ENABLED: "true"
 
   seed:
     # One-shot: sample topics and keyed JSON records for the non-orders
