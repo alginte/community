@@ -1,4 +1,5 @@
-# Alginte playground -- try the whole product on your machine with one command:
+# Alginte playground -- start here: the whole product with its own broker, isolated
+# on your machine, one command:
 #
 #     docker compose up -d        ->  http://localhost:8888
 #     docker compose down         ->  everything gone, nothing left behind
@@ -12,6 +13,11 @@
 # here, node by node. The `text-lines` topic is seeded as input for building
 # your first Streams topology by hand (the word-count walkthrough in the docs:
 # https://docs.alginte.com/streams/building).
+#
+# This is the product's isolated mode, whether or not you have a cluster: the
+# stack is yours alone and leaves nothing behind, so a stream can be designed,
+# deployed and run wrong here at no cost, then carried to your cluster as a
+# file (Download on the builder, Upload on the other side) once it runs right.
 #
 # Design choices, deliberate:
 #   - No auth: the UI is published on 127.0.0.1 only -- your machine, your rules.

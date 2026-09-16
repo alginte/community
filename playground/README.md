@@ -1,14 +1,19 @@
 # Alginte Playground
 
-Try [Alginte](https://www.alginte.com) on your machine with **one command** — no
-Kafka cluster needed. This compose file starts Alginte together with a
-single-node Kafka (KRaft) and a Schema Registry, seeded with sample topics,
-records, and a consumer group showing real lag — so every screen has something
-to look at. The `orders` topic holds real Avro records framed against the
-registered `orders-value` subject, and a Kafka Streams topology
-(`orders` → order total → big orders → `orders-enriched`) is deployed through
-Alginte's own API on startup — open the Streams area to see it running, with
-per-node throughput on the canvas.
+The playground is where to start with [Alginte](https://www.alginte.com),
+whether or not you have a cluster: **one command**, no Kafka needed. This
+compose file starts Alginte together with a single-node Kafka (KRaft) and a
+Schema Registry, seeded with sample topics, records, and a consumer group
+showing real lag — so every screen has something to look at. The `orders` topic
+holds real Avro records framed against the registered `orders-value` subject,
+and a Kafka Streams topology (`orders` → order total → big orders →
+`orders-enriched`) is deployed through Alginte's own API on startup — open the
+Streams area to see it running, with per-node throughput on the canvas.
+
+It is also the product's isolated mode. The stack is yours alone and leaves
+nothing behind, so a stream can be designed, deployed and run wrong here at no
+cost, then carried to your cluster as a file once it runs right: **Download** on
+the builder here, **Upload** on the Alginte that sees your cluster.
 
 ```bash
 curl -O https://raw.githubusercontent.com/alginte/community/main/playground/docker-compose.yml
@@ -44,5 +49,9 @@ build word-count on the canvas and watch `word-counts` fill up.
 - The UI is published on `127.0.0.1` only, with no login — it serves your
   machine and nothing else.
 - `alginte/alginte:latest` — the playground always runs the current release.
+- Sandbox mode is on (`ALGINTE_SANDBOX_ENABLED`): from Alginte 0.13.0 the MCP
+  endpoint at `/mcp` also offers the tools that validate, deploy and reset
+  stream designs, so an agent can work the builder here the way a person does.
+  Nothing here is shared, and `docker compose down` undoes everything.
 - Full documentation: https://docs.alginte.com — questions and feedback:
   [Discussions](https://github.com/alginte/community/discussions).
