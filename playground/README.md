@@ -44,6 +44,21 @@ own Kafka Streams topology — follow the
 [Streams builder walkthrough](https://docs.alginte.com/streams/building) to
 build word-count on the canvas and watch `word-counts` fill up.
 
+## Bring your schemas and your data
+
+Two folders beside the compose file, created empty on the first `up`, are registered and
+produced at every `docker compose up`, so your schemas and a sample of your records survive
+`docker compose down`:
+
+- `schemas/<subject>.avsc` | `.json` | `.proto` — registered under `<subject>` (Avro, JSON
+  Schema, Protobuf); name it `<topic>-value` and the builder binds it to that topic.
+- `records/<topic>.avro.jsonl` | `.json-schema.jsonl` | `.protobuf.jsonl` — produced into
+  `<topic>`, each value framed against `<topic>-value`; `records/<topic>.json.jsonl` — plain
+  JSON, no registry. One record per line; `key|{...}` for a keyed record, `{...}` for a null key.
+
+Keep a sample here, not a mirror, and redact anything personal before it lands in the folder.
+The READMEs inside the two folders carry the details.
+
 ## Notes
 
 - The UI is published on `127.0.0.1` only, with no login — it serves your

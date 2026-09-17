@@ -23,18 +23,33 @@
 #   - No auth: the UI is published on 127.0.0.1 only -- your machine, your rules.
 #   - No volumes: `down` resets the playground completely; `up` reseeds fresh.
 #   - `alginte/alginte:latest`: the playground always shows the current release.
+#     Pin one without editing: ALGINTE_IMAGE=alginte/alginte:0.12.0 docker compose up -d
+#   - Every image is a variable with its default in this file, the way the port
+#     is (ALGINTE_PORT); nothing needs a .env:
+#       ALGINTE_IMAGE      alginte/alginte:latest   the console
+#       CONFLUENT_VERSION  8.2.0                    cp-kafka and cp-schema-registry, broker and seeds
+#       CURL_VERSION       8.10.1                   the stream seed's curl image
 #   - No Kafka Connect / ksqlDB: their URL props stay empty, so the UI hides
 #     those areas honestly instead of showing broken ones.
 #   - Sandbox mode on (ALGINTE_SANDBOX_ENABLED): the MCP endpoint at /mcp also
 #     offers the tools that deploy and reset stream designs here, because here
 #     nothing shared can be harmed.
+#   - Bring your own: two optional folders beside this file, `schemas/` and
+#     `records/`, registered and produced at every `up`, so your schemas and a
+#     sample of your records survive the reset. Empty folders do nothing.
+#       schemas/<subject>.avsc | .json | .proto     -> registered under <subject>
+#       records/<topic>.avro.jsonl | .json-schema.jsonl | .protobuf.jsonl
+#                                                  -> framed against <topic>-value
+#       records/<topic>.json.jsonl                  -> plain JSON, no registry
+#     One record per line, `key|{...}` for a keyed record, `{...}` for a null key.
 #
-# This file is standalone -- save it anywhere and `docker compose up -d`.
+# This file is standalone -- save it anywhere and `docker compose up -d`; the
+# two folders appear beside it, empty, on the first `up`.
 
 services:
 
   broker:
-    image: confluentinc/cp-kafka:8.2.0
+    image: confluentinc/cp-kafka:${CONFLUENT_VERSION:-8.2.0}
     hostname: broker
     restart: unless-stopped
     environment:
@@ -61,7 +76,7 @@ services:
       retries: 20
 
   schema-registry:
-    image: confluentinc/cp-schema-registry:8.2.0
+    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION:-8.2.0}
     hostname: schema-registry
     restart: unless-stopped
     depends_on:
@@ -73,7 +88,7 @@ services:
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
 
   alginte:
-    image: alginte/alginte:latest
+    image: ${ALGINTE_IMAGE:-alginte/alginte:latest}
     restart: on-failure
     depends_on:
       # The app fails fast (by design) when the broker is unreachable, so wait
@@ -84,6 +99,8 @@ services:
       seed:
         condition: service_completed_successfully
       avro-seed:
+        condition: service_completed_successfully
+      bring-your-own:
         condition: service_completed_successfully
     ports:
       # Port taken (Jupyter also loves 8888)? Override without editing:
@@ -103,10 +120,12 @@ services:
     # screens. The `orders` topic itself is seeded by avro-seed below --
     # real Avro records against the registered subject, matching the blog
     # post's clips.
-    image: confluentinc/cp-kafka:8.2.0
+    image: confluentinc/cp-kafka:${CONFLUENT_VERSION:-8.2.0}
     depends_on:
       broker:
         condition: service_healthy
+    volumes:
+      - ./records:/byo/records:ro
     entrypoint: [ '/bin/sh', '-c' ]
     command: |
       "
@@ -139,6 +158,30 @@ services:
       EOF
 
       echo 'Playground topics seeded.'
+
+      # Bring your own, the plain half: a topic per records/<topic>.*.jsonl
+      # (three partitions, so the registry-framed files produced later by
+      # bring-your-own land on a real topic rather than an auto-created one),
+      # and the *.json.jsonl files produced as plain JSON here, since the
+      # plain console producer lives on this image and the registry ones on
+      # the other.
+      for f in /byo/records/*.jsonl; do
+        [ -e \"$$f\" ] || continue
+        name=$$(basename \"$$f\")
+        t=$${name%%.*}
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic \"$$t\" --replication-factor 1 --partitions 3
+      done
+      for f in /byo/records/*.json.jsonl; do
+        [ -e \"$$f\" ] || continue
+        name=$$(basename \"$$f\")
+        t=$${name%%.*}
+        if grep -q '^[^{]*|' \"$$f\"; then
+          kafka-console-producer --bootstrap-server broker:29092 --topic \"$$t\" --property parse.key=true --property key.separator='|' < \"$$f\"
+        else
+          kafka-console-producer --bootstrap-server broker:29092 --topic \"$$t\" < \"$$f\"
+        fi
+        echo \"records/$$name -> $$t (plain JSON)\"
+      done
       "
 
   avro-seed:
@@ -151,7 +194,7 @@ services:
     # deterministically, so the Offsets screen (and Alter Offset, enabled only
     # for Empty groups) has something real to show. ord-1010 lands LAST: it is
     # the newest record, the one the preview samples (Kettle, 3 x 17.0 = 51).
-    image: confluentinc/cp-schema-registry:8.2.0
+    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION:-8.2.0}
     depends_on:
       broker:
         condition: service_healthy
@@ -197,6 +240,72 @@ services:
       echo 'Avro orders seeded.'
       "
 
+  bring-your-own:
+    # One-shot, on the Schema Registry image: registers every file in
+    # schemas/ under the subject its name says, then produces every
+    # registry-framed file in records/ against its topic's <topic>-value
+    # subject (the plain JSON files were produced by `seed`). Both folders
+    # are optional and empty by default; a run over empty folders does
+    # nothing and succeeds. Keys are strings; a line `key|{...}` is keyed, a
+    # line `{...}` has a null key. Schema references are not resolved:
+    # register referenced subjects first by naming them so they sort first.
+    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION:-8.2.0}
+    depends_on:
+      broker:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+      avro-seed:
+        condition: service_completed_successfully
+    volumes:
+      - ./schemas:/byo/schemas:ro
+      - ./records:/byo/records:ro
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      echo 'Waiting for Schema Registry'
+      until curl -sf http://schema-registry:8081/subjects >/dev/null; do sleep 3; done
+
+      python3 - <<'EOF'
+      import glob, json, os, urllib.request
+      SR = 'http://schema-registry:8081'
+      types = {'.avsc': 'AVRO', '.json': 'JSON', '.proto': 'PROTOBUF'}
+      for path in sorted(glob.glob('/byo/schemas/*')):
+          stem, ext = os.path.splitext(os.path.basename(path))
+          if ext not in types:
+              continue
+          body = json.dumps({'schemaType': types[ext], 'schema': open(path, encoding='utf-8').read()}).encode()
+          req = urllib.request.Request(SR + '/subjects/' + stem + '/versions', data=body, method='POST',
+                                       headers={'Content-Type': 'application/vnd.schemaregistry.v1+json'})
+          try:
+              with urllib.request.urlopen(req) as r:
+                  print('schemas/' + os.path.basename(path) + ' -> ' + stem + ' ' + r.read().decode())
+          except urllib.error.HTTPError as e:
+              print('schemas/' + os.path.basename(path) + ' REFUSED: ' + e.read().decode())
+      EOF
+
+      for f in /byo/records/*.avro.jsonl /byo/records/*.json-schema.jsonl /byo/records/*.protobuf.jsonl; do
+        [ -e \"$$f\" ] || continue
+        name=$$(basename \"$$f\")
+        t=$${name%%.*}
+        fmt=$${name#*.}; fmt=$${fmt%.jsonl}
+        case \"$$fmt\" in
+          avro) producer=kafka-avro-console-producer ;;
+          json-schema) producer=kafka-json-schema-console-producer ;;
+          protobuf) producer=kafka-protobuf-console-producer ;;
+        esac
+        id=$$(curl -sf http://schema-registry:8081/subjects/$$t-value/versions/latest | sed -E 's/.*\"id\":([0-9]+).*/\\1/')
+        if [ -z \"$$id\" ]; then echo \"records/$$name: no subject $$t-value registered, skipped\"; continue; fi
+        if grep -q '^[^{]*|' \"$$f\"; then
+          $$producer --bootstrap-server broker:29092 --topic \"$$t\" --property schema.registry.url=http://schema-registry:8081 --property value.schema.id=$$id --property parse.key=true --property key.separator='|' --property key.serializer=org.apache.kafka.common.serialization.StringSerializer < \"$$f\"
+        else
+          $$producer --bootstrap-server broker:29092 --topic \"$$t\" --property schema.registry.url=http://schema-registry:8081 --property value.schema.id=$$id < \"$$f\"
+        fi
+        echo \"records/$$name -> $$t ($$fmt, schema id $$id)\"
+      done
+      echo 'Bring-your-own done.'
+      "
+
   stream-seed:
     # One-shot: deploys the blog post's topology (orders -> order total ->
     # big orders -> orders-enriched) through Alginte's own API, expressions
@@ -204,7 +313,7 @@ services:
     # per-node badges included, and the sink topic fills with real output.
     # No CSRF dance here, unlike the demo rig's seed: the playground runs with
     # auth off, so a plain POST is accepted.
-    image: curlimages/curl:8.10.1
+    image: curlimages/curl:${CURL_VERSION:-8.10.1}
     depends_on:
       alginte:
         condition: service_started
