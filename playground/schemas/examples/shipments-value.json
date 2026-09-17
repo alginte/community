@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Shipment",
+  "type": "object",
+  "properties": {
+    "shipmentId": {
+      "type": "string"
+    },
+    "orderId": {
+      "type": "string"
+    },
+    "carrier": {
+      "type": "string"
+    },
+    "weightKg": {
+      "type": "number"
+    },
+    "destination": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "shipmentId",
+    "orderId",
+    "carrier"
+  ],
+  "additionalProperties": false
+}

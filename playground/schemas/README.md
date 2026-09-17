@@ -17,3 +17,11 @@ to sort first. Any other extension is ignored, this file included.
 
 To copy a subject from your own registry, save the `schema` field of
 `GET /subjects/<subject>/versions/latest` as the file's content.
+
+`examples/` holds two templates, a JSON Schema subject and an Avro one, matching the record
+templates in `../records/examples/`. Subfolders are skipped, so they do nothing where they are:
+copy them up one level to try the folders, then replace them with your own.
+
+A name the playground already seeds collides with the seed: `orders-value` is registered at
+every `up` with the demo's schema, and a different schema under that subject is refused as
+incompatible. Use your real names; they only collide if your topic is literally called `orders`.

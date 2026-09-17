@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "name": "Invoice",
+  "namespace": "com.example.billing",
+  "fields": [
+    {
+      "name": "invoiceId",
+      "type": "string"
+    },
+    {
+      "name": "orderId",
+      "type": "string"
+    },
+    {
+      "name": "totalEur",
+      "type": "double"
+    },
+    {
+      "name": "paid",
+      "type": "boolean"
+    }
+  ]
+}

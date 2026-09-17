@@ -57,7 +57,9 @@ produced at every `docker compose up`, so your schemas and a sample of your reco
   JSON, no registry. One record per line; `key|{...}` for a keyed record, `{...}` for a null key.
 
 Keep a sample here, not a mirror, and redact anything personal before it lands in the folder.
-The READMEs inside the two folders carry the details.
+The READMEs inside the two folders carry the details, and each has an `examples/` subfolder with
+a JSON Schema pair (`shipments`) and an Avro pair (`invoices`) as templates: subfolders are
+skipped, so copy a pair up one level and `docker compose up -d`.
 
 ## Notes
 

@@ -1,0 +1,3 @@
+s-1|{"shipmentId":"s-1","orderId":"ord-1001","carrier":"DHL","weightKg":2.4,"destination":"Zagreb"}
+s-2|{"shipmentId":"s-2","orderId":"ord-1003","carrier":"UPS","weightKg":11.0,"destination":"Milano"}
+s-3|{"shipmentId":"s-3","orderId":"ord-1010","carrier":"DHL","weightKg":1.1,"destination":"Berlin"}

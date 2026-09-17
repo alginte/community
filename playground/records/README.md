@@ -23,3 +23,12 @@ it lands here.
 
 To take a sample from your own cluster, consume with the registry-aware console consumer of the
 same format, which prints one JSON record per line, into a file named for the topic and format.
+
+`examples/` holds two templates: `shipments.json-schema.jsonl`, keyed lines against a JSON Schema
+subject, and `invoices.avro.jsonl`, bare lines with a null key against an Avro one; their schemas
+are in `../schemas/examples/`. Subfolders are skipped, so they do nothing where they are: copy a
+pair up one level, `docker compose up -d`, and the topic and its subject are there.
+
+A topic the playground already seeds (`orders`, `payments`, `customers`, `text-lines`) receives
+your records on top of the seeded ones. Use your real names; they only collide if they are
+literally these.
