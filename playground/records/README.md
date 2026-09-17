@@ -17,9 +17,11 @@ between the dots is the format; the value subject is always `<topic>-value`, reg
 `key|{...}` is a keyed record with a String key; a line `{...}` has a null key. Any other
 extension is ignored, this file included.
 
-Keep a sample here, not a mirror: a few hundred lines prove a design's logic; volume and restore
-time are a matter for a real cluster. Anything personal in the records is yours to redact before
-it lands here.
+Keep a sample here, not a mirror. A small sample proves a design's logic if it is the right one:
+the ordinary record, and the ones that break things, a null where a field is optional, an empty
+list, a value on the boundary of your predicate. Production may not be able to give you those;
+here each is one more line you write by hand. Volume and restore time are a matter for a real
+cluster. Anything personal in the sampled records is yours to redact before it lands here.
 
 To take a sample from your own cluster, consume with the registry-aware console consumer of the
 same format, which prints one JSON record per line, into a file named for the topic and format.
