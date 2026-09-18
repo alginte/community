@@ -13,7 +13,8 @@ Streams area to see it running, with per-node throughput on the canvas.
 It is also the product's isolated mode. The stack is yours alone and leaves
 nothing behind, so a stream can be designed, deployed and run wrong here at no
 cost, then carried to your cluster as a file once it runs right: **Download** on
-the builder here, **Upload** on the Alginte that sees your cluster.
+the builder here, **Upload** on the Alginte that sees your cluster
+([From the playground to your cluster](https://docs.alginte.com/streams/promote)).
 
 ```bash
 curl -O https://raw.githubusercontent.com/alginte/community/main/playground/docker-compose.yml
@@ -59,7 +60,8 @@ produced at every `docker compose up`, so your schemas and a sample of your reco
 Keep a sample here, not a mirror, and redact anything personal before it lands in the folder.
 The READMEs inside the two folders carry the details, and each has an `examples/` subfolder with
 a JSON Schema pair (`shipments`) and an Avro pair (`invoices`) as templates: subfolders are
-skipped, so copy a pair up one level and `docker compose up -d`.
+skipped, so copy a pair up one level and `docker compose up -d`. The conventions are in the docs:
+[Bring your schemas and your data](https://docs.alginte.com/installation/playground#bring-your-schemas-and-your-data).
 
 ## Notes
 
@@ -68,7 +70,8 @@ skipped, so copy a pair up one level and `docker compose up -d`.
 - `alginte/alginte:latest` — the playground always runs the current release.
 - Sandbox mode is on (`ALGINTE_SANDBOX_ENABLED`): from Alginte 0.13.0 the MCP
   endpoint at `/mcp` also offers the tools that validate, deploy and reset
-  stream designs, so an agent can work the builder here the way a person does.
+  stream designs, so an agent can work the builder here the way a person does
+  ([the stream tools](https://docs.alginte.com/operate/mcp#sandbox-mode-the-stream-tools)).
   Nothing here is shared, and `docker compose down` undoes everything.
 - Full documentation: https://docs.alginte.com — questions and feedback:
   [Discussions](https://github.com/alginte/community/discussions).
