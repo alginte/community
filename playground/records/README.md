@@ -26,10 +26,20 @@ cluster. Anything personal in the sampled records is yours to redact before it l
 To take a sample from your own cluster, consume with the registry-aware console consumer of the
 same format, which prints one JSON record per line, into a file named for the topic and format.
 
-`examples/` holds two templates: `shipments.json-schema.jsonl`, keyed lines against a JSON Schema
+`examples/` holds three templates. `shipments.json-schema.jsonl`, keyed lines against a JSON Schema
 subject, and `invoices.avro.jsonl`, bare lines with a null key against an Avro one; their schemas
-are in `../schemas/examples/`. Subfolders are skipped, so they do nothing where they are: copy a
-pair up one level, `docker compose up -d`, and the topic and its subject are there.
+are in `../schemas/examples/`. And `shipments-cdc.json.jsonl`, which needs no schema at all: four
+Debezium change events captured from a Postgres, plain JSON as the JSON converter writes them, so
+copying that one file up gives you a CDC topic with no database and no connector. Subfolders are
+skipped, so the templates do nothing where they are: copy one up a level, `docker compose up -d`,
+and the topic, and its subject where it has one, are there.
+
+The Debezium sample has two things worth knowing, both of them the envelope's rather than the
+playground's. Its lines carry no key, because a Debezium JSON key is itself an object and starts
+with `{`, which the key rule above reads as the start of a value; the envelope is what the sample
+is for, and it is untouched. And a delete arrives as a record whose `after` is null, followed by
+a tombstone, whose value is null rather than absent. A file cannot express that, so produce it
+yourself: the same key, `Void` as the value type, one record from the console.
 
 A topic the playground already seeds (`orders`, `payments`, `customers`, `text-lines`) receives
 your records on top of the seeded ones. Use your real names; they only collide if they are
