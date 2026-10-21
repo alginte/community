@@ -41,6 +41,11 @@ is for, and it is untouched. And a delete arrives as a record whose `after` is n
 a tombstone, whose value is null rather than absent. A file cannot express that, so produce it
 yourself: the same key, `Void` as the value type, one record from the console.
 
+What a Kafka Streams application does with these events, flattening `after`, routing by `op`, and
+surviving the delete and its tombstone, is the subject of
+[Debezium change events in Kafka Streams](https://www.alginte.com/blog/debezium-change-events-kafka-streams/),
+which suggests trying each expression against this sample.
+
 A topic the playground already seeds (`orders`, `payments`, `customers`, `text-lines`) receives
 your records on top of the seeded ones. Use your real names; they only collide if they are
 literally these.

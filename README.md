@@ -15,6 +15,7 @@ place to:
 - Website & downloads: https://www.alginte.com
 - **Standalone JAR** (Java 25, no container): [Releases](https://github.com/alginte/community/releases) — `alginte.jar` with its SHA-256; the release notes live on the website
 - Documentation: https://docs.alginte.com
+- Blog: https://www.alginte.com/blog/ — the newest post, [What max.poll.interval.ms bounds in Kafka Streams, measured](https://www.alginte.com/blog/what-max-poll-interval-ms-bounds-in-kafka-streams/)
 - **Start in the [playground](./playground/)** (one command, no Kafka needed): the whole product with its own broker, isolated on your machine; design a stream here, [carry it to your cluster as a file](https://docs.alginte.com/streams/promote)
 - Discussions (forum): https://github.com/alginte/community/discussions
 
