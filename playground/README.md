@@ -45,6 +45,15 @@ own Kafka Streams topology — follow the
 [Streams builder walkthrough](https://docs.alginte.com/streams/building) to
 build word-count on the canvas and watch `word-counts` fill up.
 
+## Ask a service about each record
+
+From Alginte 0.14.0 the playground's console declares a stand-in service, `severity`, for the
+[Enrich from a service](https://docs.alginte.com/streams/enrich) node. It answers like a
+classifier, `{"answers":{"severity":{"choice":"high","confidence":0.8}}}`, the same request always
+getting the same answer, after 100 ms (`STUB_LATENCY_MS` to change it). Put an Enrich node after
+`orders`, choose `severity`, map the answer into a field, and send the result to the empty
+`orders-decided` topic: the design deploys and runs here, with no service of your own.
+
 ## Bring your schemas and your data
 
 Two folders beside the compose file, created empty on the first `up`, are registered and
