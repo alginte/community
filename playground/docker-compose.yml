@@ -27,7 +27,7 @@
 #   - Every image is a variable with its default in this file, the way the port
 #     is (ALGINTE_PORT); nothing needs a .env:
 #       ALGINTE_IMAGE      alginte/alginte:latest   the console
-#       CONFLUENT_VERSION  8.2.0                    cp-kafka and cp-schema-registry, broker and seeds
+#       CONFLUENT_VERSION  8.4.0                    cp-kafka and cp-schema-registry, broker and seeds
 #       CURL_VERSION       8.10.1                   the stream seed's curl image
 #       PYTHON_VERSION     3.13-alpine              the stand-in service's image
 #   - No Kafka Connect / ksqlDB: their URL props stay empty, so the UI hides
@@ -56,7 +56,7 @@
 services:
 
   broker:
-    image: confluentinc/cp-kafka:${CONFLUENT_VERSION:-8.2.0}
+    image: confluentinc/cp-kafka:${CONFLUENT_VERSION:-8.4.0}
     hostname: broker
     restart: unless-stopped
     environment:
@@ -83,7 +83,7 @@ services:
       retries: 20
 
   schema-registry:
-    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION:-8.2.0}
+    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION:-8.4.0}
     hostname: schema-registry
     restart: unless-stopped
     depends_on:
@@ -170,7 +170,7 @@ services:
     # screens. The `orders` topic itself is seeded by avro-seed below --
     # real Avro records against the registered subject, matching the blog
     # post's clips.
-    image: confluentinc/cp-kafka:${CONFLUENT_VERSION:-8.2.0}
+    image: confluentinc/cp-kafka:${CONFLUENT_VERSION:-8.4.0}
     depends_on:
       broker:
         condition: service_healthy
@@ -244,7 +244,7 @@ services:
     # deterministically, so the Offsets screen (and Alter Offset, enabled only
     # for Empty groups) has something real to show. ord-1010 lands LAST: it is
     # the newest record, the one the preview samples (Kettle, 3 x 17.0 = 51).
-    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION:-8.2.0}
+    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION:-8.4.0}
     depends_on:
       broker:
         condition: service_healthy
@@ -253,15 +253,20 @@ services:
     entrypoint: [ '/bin/sh', '-c' ]
     command: |
       "
+      # No curl on this image since Confluent 8.4.0 (8.2.0 had it); python3
+      # is there, so it does the HTTP, as in bring-your-own below.
+      get() { python3 -c 'import sys, urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=5).read().decode())' \"$$1\" 2>/dev/null; }
+      post() { python3 -c 'import sys, urllib.request; print(urllib.request.urlopen(urllib.request.Request(sys.argv[1], data=open(sys.argv[2], \"rb\").read(), headers={\"Content-Type\": \"application/vnd.schemaregistry.v1+json\"}), timeout=5).read().decode())' \"$$1\" \"$$2\"; }
+
       echo 'Waiting for Schema Registry'
-      until curl -sf http://schema-registry:8081/subjects >/dev/null; do sleep 3; done
+      until get http://schema-registry:8081/subjects >/dev/null; do sleep 3; done
 
       echo 'Registering orders-value (Avro)'
       cat > /tmp/orders-schema.json <<'EOF'
       {\"schemaType\":\"AVRO\",\"schema\":\"{\\\"type\\\":\\\"record\\\",\\\"name\\\":\\\"Order\\\",\\\"namespace\\\":\\\"com.alginte.demo\\\",\\\"fields\\\":[{\\\"name\\\":\\\"orderId\\\",\\\"type\\\":\\\"string\\\"},{\\\"name\\\":\\\"customerId\\\",\\\"type\\\":\\\"string\\\"},{\\\"name\\\":\\\"item\\\",\\\"type\\\":\\\"string\\\"},{\\\"name\\\":\\\"quantity\\\",\\\"type\\\":\\\"int\\\"},{\\\"name\\\":\\\"priceEur\\\",\\\"type\\\":\\\"double\\\"}]}\"}
       EOF
-      curl -sf -X POST http://schema-registry:8081/subjects/orders-value/versions -H 'Content-Type: application/vnd.schemaregistry.v1+json' --data-binary @/tmp/orders-schema.json && echo ' <- orders-value registered'
-      SCHEMA_ID=$$(curl -sf http://schema-registry:8081/subjects/orders-value/versions/latest | sed -E 's/.*\"id\":([0-9]+).*/\\1/')
+      post http://schema-registry:8081/subjects/orders-value/versions /tmp/orders-schema.json && echo ' <- orders-value registered'
+      SCHEMA_ID=$$(get http://schema-registry:8081/subjects/orders-value/versions/latest | sed -E 's/.*\"id\":([0-9]+).*/\\1/')
       echo \"orders-value schema id: $$SCHEMA_ID\"
 
       echo 'Seeding Avro orders (first seven)'
@@ -299,7 +304,7 @@ services:
     # nothing and succeeds. Keys are strings; a line `key|{...}` is keyed, a
     # line `{...}` has a null key. Schema references are not resolved:
     # register referenced subjects first by naming them so they sort first.
-    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION:-8.2.0}
+    image: confluentinc/cp-schema-registry:${CONFLUENT_VERSION:-8.4.0}
     depends_on:
       broker:
         condition: service_healthy
@@ -313,8 +318,11 @@ services:
     entrypoint: [ '/bin/sh', '-c' ]
     command: |
       "
+      # No curl on this image since Confluent 8.4.0, as in avro-seed.
+      get() { python3 -c 'import sys, urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=5).read().decode())' \"$$1\" 2>/dev/null; }
+
       echo 'Waiting for Schema Registry'
-      until curl -sf http://schema-registry:8081/subjects >/dev/null; do sleep 3; done
+      until get http://schema-registry:8081/subjects >/dev/null; do sleep 3; done
 
       python3 - <<'EOF'
       import glob, json, os, urllib.request
@@ -344,7 +352,7 @@ services:
           json-schema) producer=kafka-json-schema-console-producer ;;
           protobuf) producer=kafka-protobuf-console-producer ;;
         esac
-        id=$$(curl -sf http://schema-registry:8081/subjects/$$t-value/versions/latest | sed -E 's/.*\"id\":([0-9]+).*/\\1/')
+        id=$$(get http://schema-registry:8081/subjects/$$t-value/versions/latest | sed -E 's/.*\"id\":([0-9]+).*/\\1/')
         if [ -z \"$$id\" ]; then echo \"records/$$name: no subject $$t-value registered, skipped\"; continue; fi
         if grep -q '^[^{]*|' \"$$f\"; then
           $$producer --bootstrap-server broker:29092 --topic \"$$t\" --property schema.registry.url=http://schema-registry:8081 --property value.schema.id=$$id --property parse.key=true --property key.separator='|' --property key.serializer=org.apache.kafka.common.serialization.StringSerializer < \"$$f\"
