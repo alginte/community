@@ -46,6 +46,7 @@ surviving the delete and its tombstone, is the subject of
 [Debezium change events in Kafka Streams](https://www.alginte.com/blog/debezium-change-events-kafka-streams/),
 which suggests trying each expression against this sample.
 
-A topic the playground already seeds (`orders`, `payments`, `customers`, `text-lines`) receives
+A topic the playground already seeds (`orders`, `payments`, `customers`, `customer-tiers`,
+`text-lines`) receives
 your records on top of the seeded ones. Use your real names; they only collide if they are
 literally these.

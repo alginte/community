@@ -22,6 +22,7 @@
 # Design choices, deliberate:
 #   - No auth: the UI is published on 127.0.0.1 only -- your machine, your rules.
 #   - No volumes: `down` resets the playground completely; `up` reseeds fresh.
+#     The folders beside this file are only read, never written by the stack.
 #   - `alginte/alginte:latest`: the playground always shows the current release.
 #     Pin one without editing: ALGINTE_IMAGE=alginte/alginte:0.12.0 docker compose up -d
 #   - Every image is a variable with its default in this file, the way the port
@@ -49,9 +50,15 @@
 #                                                  -> framed against <topic>-value
 #       records/<topic>.json.jsonl                  -> plain JSON, no registry
 #     One record per line, `key|{...}` for a keyed record, `{...}` for a null key.
+#   - Files for SQL (0.16.0): a third folder, `files/`, mounted READ-ONLY at /data,
+#     the one folder the SQL Query page may read: read_csv('/data/<file>.csv').
+#     It holds `products.csv`, a price list to join with `orders`. Read-only is a
+#     requirement, not a preference: DuckDB can write where it may read, so the
+#     console turns SQL off when the folder is writable.
 #
 # This file is standalone -- save it anywhere and `docker compose up -d`; the
-# two folders appear beside it, empty, on the first `up`.
+# three folders appear beside it, empty, on the first `up` (`files/` holds the
+# price list only where the playground was cloned or downloaded as a folder).
 
 services:
 
@@ -127,6 +134,12 @@ services:
       ALGINTE_SERVICES_SEVERITY_BASEURL: http://stub-service:8080
       ALGINTE_SERVICES_SEVERITY_TIMEOUT: 2s
       ALGINTE_SERVICES_SEVERITY_ANSWEREXAMPLE: '{"answers":{"severity":{"type":"choice","choice":"high","confidence":0.8}}}'
+      # SQL over topics (0.16.0) reads files from this one folder only, the
+      # read-only mount below. A console older than 0.16.0 ignores it.
+      ALGINTE_SQL_ALLOWEDDIRECTORY: /data
+    volumes:
+      # Read-only: with a writable folder the console turns SQL off.
+      - ./files:/data:ro
 
   stub-service:
     # A stand-in for a classifier, so the Enrich node has something to call: any
@@ -184,7 +197,7 @@ services:
       # deterministic, and the topology preview's real-record sample is the
       # same ord-1010 the blog post narrates.
       kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic orders --replication-factor 1 --partitions 1
-      for t in orders-enriched orders-decided payments customers text-lines word-counts demo-input demo-output; do
+      for t in orders-enriched orders-decided payments customers customer-tiers text-lines word-counts demo-input demo-output; do
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic $$t --replication-factor 1 --partitions 3
       done
 
@@ -198,6 +211,16 @@ services:
       c-01|{\"customerId\":\"c-01\",\"name\":\"Ana K.\",\"country\":\"HR\",\"tier\":\"gold\"}
       c-02|{\"customerId\":\"c-02\",\"name\":\"Marco B.\",\"country\":\"IT\",\"tier\":\"silver\"}
       c-03|{\"customerId\":\"c-03\",\"name\":\"Lena W.\",\"country\":\"DE\",\"tier\":\"gold\"}
+      EOF
+      # The customers of the Avro `orders` topic, so two topics can be joined with SQL
+      # (kafka_topic(), 0.16.0). One of them, c-5521, is left out ON PURPOSE: a LEFT JOIN
+      # then shows ord-1008 with no customer, the case an inner join drops without a word.
+      kafka-console-producer --bootstrap-server broker:29092 --topic customer-tiers --property parse.key=true --property key.separator='|' <<'EOF'
+      c-1001|{\"customerId\":\"c-1001\",\"name\":\"Ana K.\",\"country\":\"HR\",\"tier\":\"gold\"}
+      c-2417|{\"customerId\":\"c-2417\",\"name\":\"Marco B.\",\"country\":\"IT\",\"tier\":\"silver\"}
+      c-6650|{\"customerId\":\"c-6650\",\"name\":\"Lena W.\",\"country\":\"DE\",\"tier\":\"gold\"}
+      c-3305|{\"customerId\":\"c-3305\",\"name\":\"Ivo P.\",\"country\":\"HR\",\"tier\":\"bronze\"}
+      c-8802|{\"customerId\":\"c-8802\",\"name\":\"Sara M.\",\"country\":\"SI\",\"tier\":\"silver\"}
       EOF
 
       # Input for the word-count topology you can build in the Streams builder.
@@ -369,6 +392,10 @@ services:
     # big orders -> orders-enriched) through Alginte's own API, expressions
     # and all -- so the Streams area shows the deployed canvas from the clips,
     # per-node badges included, and the sink topic fills with real output.
+    # Since 0.16.0 also orderCounts (orders counted per customer, into
+    # order-counts), whose state store SQL's kafka_store() reads, and
+    # orderRevenue (revenue summed per customer, into order-revenue), whose
+    # changelog SQL reads as an app running elsewhere would be read.
     # No CSRF dance here, unlike the demo rig's seed: the playground runs with
     # auth off, so a plain POST is accepted.
     image: curlimages/curl:${CURL_VERSION:-8.10.1}
@@ -409,4 +436,70 @@ services:
       EOF
       echo 'Deploying the blog topology'
       curl -sf -X POST http://alginte:8888/api/kafka-streams/create-stream-from-react-flow -H 'Content-Type: application/json' --data-binary @/tmp/stream.json >/dev/null && echo ' <- orderEnrichment deployed'
+
+      # orderCounts (0.16.0): orders counted per customer, so a state store holds
+      # something to ask with SQL. Fixed node ids, so the store always has one
+      # name: orders-per-customer-perCustomer (the console names a store after its
+      # node: the name, then '-', then the node's id; a canvas id differs every
+      # time). Its changelog: orderCounts-orders-per-customer-perCustomer-changelog.
+      cat > /tmp/counts.json <<'EOF'
+      {
+        \"configuration\": { \"application.id\": \"orderCounts\" },
+        \"nodes\": [
+          { \"id\": \"orders\", \"type\": \"SOURCE_STREAM\", \"position\": { \"x\": 340, \"y\": 0 },
+            \"data\": { \"name\": \"Orders\", \"streamSourceTarget\": \"STREAM\", \"inputTopics\": [\"orders\"],
+                      \"keySerde\": \"Void\", \"valueSerde\": \"Avro\", \"valueSubject\": \"orders-value\" } },
+          { \"id\": \"byCustomer\", \"type\": \"GROUP_BY\", \"position\": { \"x\": 340, \"y\": 160 },
+            \"data\": { \"name\": \"by customer\", \"keySerde\": \"String\", \"valueSerde\": \"Avro\",
+                      \"expression\": { \"expression\": \"value.get('customerId').toString()\", \"language\": \"SpEL\" } } },
+          { \"id\": \"perCustomer\", \"type\": \"COUNT\", \"position\": { \"x\": 340, \"y\": 320 },
+            \"data\": { \"name\": \"orders per customer\" } },
+          { \"id\": \"toStream\", \"type\": \"TO_STREAM\", \"position\": { \"x\": 340, \"y\": 480 },
+            \"data\": { \"name\": \"to stream\" } },
+          { \"id\": \"counts\", \"type\": \"SINK_NODE\", \"position\": { \"x\": 340, \"y\": 640 },
+            \"data\": { \"name\": \"Order counts\", \"topicName\": \"order-counts\", \"keySerde\": \"String\", \"valueSerde\": \"Long\" } }
+        ],
+        \"edges\": [
+          { \"id\": \"c1\", \"source\": \"orders\", \"target\": \"byCustomer\", \"type\": \"deletable-edge\", \"data\": { \"label\": null } },
+          { \"id\": \"c2\", \"source\": \"byCustomer\", \"target\": \"perCustomer\", \"type\": \"deletable-edge\", \"data\": { \"label\": null } },
+          { \"id\": \"c3\", \"source\": \"perCustomer\", \"target\": \"toStream\", \"type\": \"deletable-edge\", \"data\": { \"label\": null } },
+          { \"id\": \"c4\", \"source\": \"toStream\", \"target\": \"counts\", \"type\": \"deletable-edge\", \"data\": { \"label\": null } }
+        ]
+      }
+      EOF
+      curl -sf -X POST http://alginte:8888/api/kafka-streams/create-stream-from-react-flow -H 'Content-Type: application/json' --data-binary @/tmp/counts.json >/dev/null && echo ' <- orderCounts deployed'
+
+      # orderRevenue (0.16.0): revenue (quantity * priceEur) summed per customer, a
+      # Double, so SQL can join one app's store with another app's state read
+      # through its changelog. Fixed node ids, as for orderCounts: the store is
+      # revenue-per-customer-perCustomer, its changelog
+      # orderRevenue-revenue-per-customer-perCustomer-changelog (Double values).
+      cat > /tmp/revenue.json <<'EOF'
+      {
+        \"configuration\": { \"application.id\": \"orderRevenue\" },
+        \"nodes\": [
+          { \"id\": \"orders\", \"type\": \"SOURCE_STREAM\", \"position\": { \"x\": 340, \"y\": 0 },
+            \"data\": { \"name\": \"Orders\", \"streamSourceTarget\": \"STREAM\", \"inputTopics\": [\"orders\"],
+                      \"keySerde\": \"Void\", \"valueSerde\": \"Avro\", \"valueSubject\": \"orders-value\" } },
+          { \"id\": \"byCustomer\", \"type\": \"GROUP_BY\", \"position\": { \"x\": 340, \"y\": 160 },
+            \"data\": { \"name\": \"by customer\", \"keySerde\": \"String\", \"valueSerde\": \"Avro\",
+                      \"expression\": { \"expression\": \"value.get('customerId').toString()\", \"language\": \"SpEL\" } } },
+          { \"id\": \"perCustomer\", \"type\": \"AGGREGATE\", \"position\": { \"x\": 340, \"y\": 320 },
+            \"data\": { \"name\": \"revenue per customer\", \"keySerde\": \"String\", \"valueSerde\": \"Double\",
+                      \"initializer\": { \"expression\": \"0.0\", \"language\": \"SpEL\" },
+                      \"adder\": { \"expression\": \"#aggValue + value.get('quantity') * value.get('priceEur')\", \"language\": \"SpEL\" } } },
+          { \"id\": \"toStream\", \"type\": \"TO_STREAM\", \"position\": { \"x\": 340, \"y\": 480 },
+            \"data\": { \"name\": \"to stream\" } },
+          { \"id\": \"revenue\", \"type\": \"SINK_NODE\", \"position\": { \"x\": 340, \"y\": 640 },
+            \"data\": { \"name\": \"Order revenue\", \"topicName\": \"order-revenue\", \"keySerde\": \"String\", \"valueSerde\": \"Double\" } }
+        ],
+        \"edges\": [
+          { \"id\": \"r1\", \"source\": \"orders\", \"target\": \"byCustomer\", \"type\": \"deletable-edge\", \"data\": { \"label\": null } },
+          { \"id\": \"r2\", \"source\": \"byCustomer\", \"target\": \"perCustomer\", \"type\": \"deletable-edge\", \"data\": { \"label\": null } },
+          { \"id\": \"r3\", \"source\": \"perCustomer\", \"target\": \"toStream\", \"type\": \"deletable-edge\", \"data\": { \"label\": null } },
+          { \"id\": \"r4\", \"source\": \"toStream\", \"target\": \"revenue\", \"type\": \"deletable-edge\", \"data\": { \"label\": null } }
+        ]
+      }
+      EOF
+      curl -sf -X POST http://alginte:8888/api/kafka-streams/create-stream-from-react-flow -H 'Content-Type: application/json' --data-binary @/tmp/revenue.json >/dev/null && echo ' <- orderRevenue deployed'
       "
